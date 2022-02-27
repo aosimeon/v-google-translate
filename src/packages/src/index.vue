@@ -19,7 +19,6 @@
         <svg
           class="icon-svg icon-svg--size16"
           :style="{ transform: visible ? 'rotate(0deg)' : 'rotate(180deg)' }"
-          v-if="showArrow"
         >
           <svg xmlns="http://www.w3.org/2000/svg">
             <path
@@ -30,8 +29,7 @@
       </div>
       <transition name="v-animate-zoom-in-top">
         <div
-          :class="[dropdownClassName, 'eo__dropdown__menu']"
-          :style="dropdownStyle"
+          class="eo__dropdown__menu"
           v-show="visible"
           @mouseenter="show"
           @mouseleave="hide"
@@ -325,20 +323,6 @@ export default {
       type: Number,
       default: 150,
     },
-    dropdownClassName: {
-      type: String,
-      default: "",
-    },
-    dropdownStyle: {
-      type: Object,
-      default: () => {
-        return {};
-      },
-    },
-    showArrow: {
-      type: Boolean,
-      default: true,
-    },
   },
   computed: {
     __selectedLangInfo() {
@@ -358,8 +342,7 @@ export default {
     this.htmlLangObserver();
   },
   beforeDestroy() {
-    this._googleTranslateSelectObserver.disconnect();
-    this._htmlLangObserver.disconnect();
+    this._observer.disconnect();
   },
   methods: {
     initUtils() {
@@ -369,11 +352,9 @@ export default {
         style.innerHTML = styles;
         document.getElementsByTagName("head")[0].appendChild(style);
       };
-
       this.dynamicLoadJs = (jsUrl, fn, jsId = "") => {
         const _doc = document.querySelector("body");
         const script = document.createElement("script");
-
         script.setAttribute("type", "text/javascript");
         script.setAttribute("src", jsUrl);
         jsId && script.setAttribute("id", jsId);
@@ -389,7 +370,6 @@ export default {
           script.onload = script.onreadystatechange = null;
         };
       };
-
       this.getCookie = name => {
         var value = "; " + document.cookie;
         var parts = value.split("; " + name + "=");
@@ -399,7 +379,6 @@ export default {
           return undefined;
         }
       };
-
       this.observer = (target, optionName, callback) => {
         if (!target) return;
         const MutationObserver =
@@ -423,7 +402,6 @@ export default {
             });
           });
           Observer.observe && Observer.observe(target, optionsMap[optionName]);
-          return Observer;
         }
       };
     },
@@ -469,42 +447,24 @@ export default {
               var b = a;
               var t = document.querySelector(".goog-te-combo");
               var gtel = document.querySelector(".eo__languages");
-              if (
-                gtel == null ||
-                gtel.innerHTML.length === 0 ||
-                t.options.length === 0
-              ) {
-                this.googleTranslateSelectObserver();
+              if (gtel == null || gtel.innerHTML.length === 0 || t == null) {
+                setTimeout(() => {
+                  this.doGTranslate(a);
+                }, 500);
               } else {
                 t.value = b;
                 this.GTranslateFireEvent(t, "change");
-                this._googleTranslateSelectObserver &&
-                  this._googleTranslateSelectObserver.disconnect();
               }
             };
           },
         );
       };
-
       createStyle();
       createJsonCallback();
       createScript();
     },
-    googleTranslateSelectObserver() {
-      this._googleTranslateSelectObserver = this.observer(
-        document.querySelector(".goog-te-combo"),
-        "child",
-        record => {
-          if (record.addedNodes[0] && record.addedNodes[0].value) {
-            if (this.selectedLanguageCode === record.addedNodes[0].value) {
-              this.doGTranslate(record.addedNodes[0].value);
-            }
-          }
-        },
-      );
-    },
     htmlLangObserver() {
-      this._htmlLangObserver = this.observer(
+      this._observer = this.observer(
         document.querySelector("html"),
         "attribute",
         record => {
@@ -529,50 +489,25 @@ export default {
         ? this.isLanguageCodeInLanguages(this.getBrowserLanguage())
         : "";
       const googleCookieLanguage = this.getGoogleCookieLanguage();
-      const isFetchBrowserLanguageOpen = this.fetchBrowserLanguage;
-      const isGoogleCookieLanguageExist = !!googleCookieLanguage;
-
-      const handleDefaultLanguage = () => {
-        if (this.defaultLanguageCode) {
-          return this.defaultLanguageCode;
+      const isBrowserLanguageNotEmpty = this.fetchBrowserLanguage;
+      const isGoogleCookieLanguageNotEmpty = !!googleCookieLanguage;
+      let selectedCode = "";
+      // 首次进入 google translate 不会植入 cookie
+      if (!isGoogleCookieLanguageNotEmpty) {
+        // 判断是否开启读取浏览器语言
+        if (!isBrowserLanguageNotEmpty) {
+          if (this.defaultLanguageCode) {
+            selectedCode = this.defaultLanguageCode;
+          } else {
+            selectedCode = "en";
+          }
         } else {
-          return "en";
+          selectedCode = browserLanguage;
         }
-      };
-
-      const handleBrowserLanguageInLanguages = () => {
-        const isBrowserLanguageInLanguages = !!this.languages.find(
-          language => language.code === browserLanguage,
-        );
-        if (isBrowserLanguageInLanguages) {
-          return browserLanguage;
-        } else {
-          return handleDefaultLanguage();
-        }
-      };
-
-      const handleGoogleCookieLanguageInLanguages = () => {
-        const isGoogleCookieLanguageInLanguages = !!this.languages.find(
-          language => language.code === googleCookieLanguage,
-        );
-        if (isGoogleCookieLanguageInLanguages) {
-          return googleCookieLanguage;
-        } else {
-          return handleDefaultLanguage();
-        }
-      };
-
-      let selectedCode = handleDefaultLanguage();
-      if (!isGoogleCookieLanguageExist) {
-        // 首次
-        if (isFetchBrowserLanguageOpen)
-          selectedCode = handleBrowserLanguageInLanguages();
       } else {
-        // 非首次
-        // 越过浏览器语言判断直接去列表中匹配
-        selectedCode = handleGoogleCookieLanguageInLanguages();
+        // 只要有 GoogleCookie：googtrans 就取 cookie 的值 (isGoogleCookieLanguageNotEmpty && isBrowserLanguageNotEmpty) || (isGoogleCookieLanguageNotEmpty && !isBrowserLanguageNotEmpty)
+        selectedCode = googleCookieLanguage;
       }
-
       this.translateHandler(selectedCode);
     },
     getBrowserLanguage() {
@@ -621,9 +556,7 @@ export default {
     translateHandler(code) {
       this.doGTranslate(code);
       this.selectedLanguageCode = code;
-
       this.$emit("select", this.selectedLanguageInfo());
-
       return false;
     },
     show() {
@@ -650,23 +583,19 @@ export default {
     fill: currentColor;
     width: 20px;
     height: 20px;
-
     &--size16 {
       width: 16px;
       height: 16px;
     }
   }
-
   &__dropdown {
     position: relative;
     cursor: pointer;
-
     &__activator {
       display: flex;
       align-items: center;
       justify-content: space-between;
       padding: 10px 0;
-
       .icon-svg {
         width: 11px;
         height: 8px;
@@ -674,7 +603,6 @@ export default {
         transition: all 0.35s;
       }
     }
-
     &__menu {
       position: absolute;
       top: 100%;
@@ -687,21 +615,17 @@ export default {
       box-shadow: 0 2px 12px 0 rgb(34 34 34 / 5%);
       overflow-y: auto;
       max-height: 400px;
-
       &::-webkit-scrollbar {
         width: 5px;
       }
-
       &::-webkit-scrollbar-thumb {
         border-radius: 10px;
         background-color: #e0e0e0;
       }
-
       &::-webkit-scrollbar-track {
         border-radius: 10px;
         background-color: #f7f8fa;
       }
-
       ul {
         padding: 0;
         margin: 0;
@@ -709,7 +633,6 @@ export default {
         -webkit-tap-highlight-color: transparent;
         list-style: none;
       }
-
       li {
         position: relative;
         line-height: 36px;
@@ -717,7 +640,6 @@ export default {
         margin: 0;
         font-weight: 500;
         letter-spacing: 0.1em;
-
         &:before {
           content: "";
           position: absolute;
@@ -729,7 +651,6 @@ export default {
           transition: all 0.6s;
           transform: scale(0);
         }
-
         &:hover:before {
           transform: scale(1);
         }
@@ -737,7 +658,6 @@ export default {
     }
   }
 }
-
 .v-animate-zoom-in-top-enter-active,
 .v-animate-zoom-in-top-leave-active {
   opacity: 1;
@@ -760,251 +680,209 @@ export default {
     height: 40px;
     margin-right: 5px;
   }
-
   .language {
     display: flex;
     align-items: center;
     justify-content: flex-start;
-
     &__flag {
       background-image: url(../../assets/language-flags.png);
     }
   }
-
   .language__flag--af {
     width: 35px;
     height: 35px;
     background-position: 0px 0px;
   }
-
   .language__flag--ar {
     width: 35px;
     height: 35px;
     background-position: -40px 0px;
   }
-
   .language__flag--az {
     width: 35px;
     height: 35px;
     background-position: 0px -40px;
   }
-
   .language__flag--be {
     width: 35px;
     height: 35px;
     background-position: -40px -40px;
   }
-
   .language__flag--bg {
     width: 35px;
     height: 35px;
     background-position: -80px 0px;
   }
-
   .language__flag--ca {
     width: 35px;
     height: 35px;
     background-position: -80px -40px;
   }
-
   .language__flag--cs {
     width: 35px;
     height: 35px;
     background-position: 0px -80px;
   }
-
   .language__flag--da {
     width: 35px;
     height: 35px;
     background-position: -40px -80px;
   }
-
   .language__flag--de {
     width: 35px;
     height: 35px;
     background-position: -80px -80px;
   }
-
   .language__flag--el {
     width: 35px;
     height: 35px;
     background-position: -120px 0px;
   }
-
   .language__flag--en {
     width: 35px;
     height: 35px;
     background-position: -120px -40px;
   }
-
   .language__flag--es {
     width: 35px;
     height: 35px;
     background-position: -120px -80px;
   }
-
   .language__flag--et {
     width: 35px;
     height: 35px;
     background-position: 0px -120px;
   }
-
   .language__flag--eu {
     width: 35px;
     height: 35px;
     background-position: -40px -120px;
   }
-
   .language__flag--fi {
     width: 35px;
     height: 35px;
     background-position: -80px -120px;
   }
-
   .language__flag--fr {
     width: 35px;
     height: 35px;
     background-position: -120px -120px;
   }
-
   .language__flag--ga {
     width: 35px;
     height: 35px;
     background-position: -160px 0px;
   }
-
   .language__flag--hr {
     width: 35px;
     height: 35px;
     background-position: -160px -40px;
   }
-
   .language__flag--hu {
     width: 35px;
     height: 35px;
     background-position: -160px -80px;
   }
-
   .language__flag--hy {
     width: 35px;
     height: 35px;
     background-position: -160px -120px;
   }
-
   .language__flag--id {
     width: 35px;
     height: 35px;
     background-position: 0px -160px;
   }
-
   .language__flag--it {
     width: 35px;
     height: 35px;
     background-position: -40px -160px;
   }
-
   .language__flag--ja {
     width: 35px;
     height: 35px;
     background-position: -80px -160px;
   }
-
   .language__flag--ko {
     width: 35px;
     height: 35px;
     background-position: -120px -160px;
   }
-
   .language__flag--lt {
     width: 35px;
     height: 35px;
     background-position: -160px -160px;
   }
-
   .language__flag--ms {
     width: 35px;
     height: 35px;
     background-position: -200px 0px;
   }
-
   .language__flag--nl {
     width: 35px;
     height: 35px;
     background-position: -200px -40px;
   }
-
   .language__flag--no {
     width: 35px;
     height: 35px;
     background-position: -200px -80px;
   }
-
   .language__flag--pl {
     width: 35px;
     height: 35px;
     background-position: -200px -120px;
   }
-
   .language__flag--pt {
     width: 35px;
     height: 35px;
     background-position: -200px -160px;
   }
-
   .language__flag--ro {
     width: 35px;
     height: 35px;
     background-position: 0px -200px;
   }
-
   .language__flag--ru {
     width: 35px;
     height: 35px;
     background-position: -40px -200px;
   }
-
   .language__flag--sq {
     width: 35px;
     height: 35px;
     background-position: -80px -200px;
   }
-
   .language__flag--sv {
     width: 35px;
     height: 35px;
     background-position: -120px -200px;
   }
-
   .language__flag--th {
     width: 35px;
     height: 35px;
     background-position: -160px -200px;
   }
-
   .language__flag--tl {
     width: 35px;
     height: 35px;
     background-position: -200px -200px;
   }
-
   .language__flag--tr {
     width: 35px;
     height: 35px;
     background-position: -240px 0px;
   }
-
   .language__flag--uk {
     width: 35px;
     height: 35px;
     background-position: -240px -40px;
   }
-
   .language__flag--zh-CN {
     width: 35px;
     height: 35px;
     background-position: -240px -80px;
   }
-
   .language__flag--zh-TW {
     width: 35px;
     height: 35px;
